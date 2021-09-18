@@ -1,0 +1,6 @@
+Selenium
+requests
+paramiko
+chromedriver_autoinstaller
+bps_restpy
+pytest
