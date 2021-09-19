@@ -316,7 +316,7 @@ class Chrome(object):
                     self.driver.find_element_by_xpath(elem).click()
                     break
                 except:
-                    Tools.debug(f"Failed to Click_{str(i)}", elem)
+                    Tools.debug(f"Failed to Click_{str(i)}", elem, "Unexpected error:", exc_info()[0], exc_info()[1])
             else:
                 flag = False
         else:
@@ -386,6 +386,10 @@ class SSH:
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
+        except (TimeoutError, paramiko.ssh_exception.NoValidConnectionsError):
+            self.close()
+            if Tools.exc:
+                raise Exc.SSHError
         except:  # known errors TimeoutError, paramiko.ssh_exception.NoValidConnectionsError
             Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
             self.close()
@@ -427,6 +431,7 @@ class SSH:
         try:
             self.ssh.close()
         except:
+            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
             pass  # silenced
 
 
@@ -495,6 +500,7 @@ class Telnet:
         try:
             self.tn.close()
         except:
+            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
             pass  # silenced
 
 
@@ -601,6 +607,7 @@ class BP(object):
             try:
                 bps.logout()
             except:
+                Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
                 pass  # Silenced
 
 
