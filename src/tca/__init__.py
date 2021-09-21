@@ -426,7 +426,7 @@ class SSH:
                 else:
                     stdin, stdout, stderr = self.ssh.exec_command(command)
                     return stdout.readlines(line)
-            except OSError:
+            except (OSError,paramiko.ssh_exception.SSHException,paramiko.ssh_exception.NoValidConnectionsError):
                 Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
                 self.ssh_connect()
         else:
