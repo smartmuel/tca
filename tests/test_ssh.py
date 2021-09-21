@@ -1,11 +1,11 @@
 from tca import *
 import pytest
 
-user, password = "user", "password"
-SSH_ENABLED = ["10.170.19.111", user, password]
+user, password = "smartmuel1", "IXSZW5caiAQrQQ"
+SSH_ENABLED = ["tty.sdf.org", user, password]
 NO_PING = ["172.16.255.254", user, password]
-SSH_DISABLED = [Tools.get_ip_address(), user, password]
-SSH_WRONG_LOGIN = ["10.170.19.111", "wrong", "login"]
+SSH_DISABLED = ["google.com", user, password]
+SSH_WRONG_LOGIN = ["tty.sdf.org", "wrong", "login"]
 
 class TestSSH():
     def test_ssh_enabled_no_ping(self):
@@ -66,18 +66,18 @@ class TestSSH():
 
     def test_ssh_command(self):
         ssh = SSH(SSH_ENABLED[0], SSH_ENABLED[1], SSH_ENABLED[2])
-        ssh.command("ls")
+        ssh.command(" ",line=0)
         ssh.close()
 
     def test_ssh_command_cm(self):
         with CM.ssh(SSH_ENABLED[0],SSH_ENABLED[1],SSH_ENABLED[2]) as ssh:
-            ssh.command("ls")
+            ssh.command(" ",line=0)
 
     def test_ssh_command_shell(self):
         ssh = SSH(SSH_ENABLED[0], SSH_ENABLED[1], SSH_ENABLED[2],shell=True,shell_key="")
-        ssh.command("ls")
+        ssh.command(" ")
         ssh.close()
 
     def test_ssh_command_shell_cm(self):
         with CM.ssh(SSH_ENABLED[0],SSH_ENABLED[1],SSH_ENABLED[2],shell=True,shell_key="") as ssh:
-            ssh.command("ls")
+            ssh.command(" ")
