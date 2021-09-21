@@ -20,10 +20,10 @@ from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.ui import WebDriverWait
 
 try:
-    from dataclasses import dataclass
+    from dataclasses import dataclass, field
 except ModuleNotFoundError:
     check_call([executable, "-m", "pip", "install", "dataclasses"])
-    from dataclasses import dataclass
+    from dataclasses import dataclass, field
 
 
 # class for context manager tools like: cd( change directory ), ping, etc..
@@ -281,19 +281,19 @@ class Chrome(object):
         except:
             Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
 
-    def wait(self, elem: str, delay: int = 10, Type: str = By.XPATH) -> bool:
+    def wait(self, elem: str, delay: int = 10, elem_type: str = By.XPATH) -> bool:
         """
 
         :param elem: The copied element, the element should be in the type that is selected
         :param delay: The delay
-        :param Type: The default type is Xpath
+        :param elem_type: The default type is Xpath
         :return: True if the element is existing
         """
 
         elem = elem.strip()
         flag = True
         try:
-            WebDriverWait(self.driver, delay).until(expected_conditions.presence_of_element_located((Type, elem)))
+            WebDriverWait(self.driver, delay).until(expected_conditions.presence_of_element_located((elem_type, elem)))
         except TimeoutException:
             Tools.debug("Wait False", elem)
             flag = False
@@ -374,6 +374,8 @@ class SSH:
     shell_key: bytes = b"dfcshell\n"
     port: int = 22
     pingf: bool = True
+    channel: Any = field(init=False, repr=False)
+    ssh: Any = field(init=False, repr=False)
 
     def __post_init__(self):
         if Tools.ping(self.host) if self.pingf else True:
@@ -390,21 +392,24 @@ class SSH:
             self.close()
             if Tools.exc:
                 raise Exc.SSHError
-        except:  # known errors TimeoutError, paramiko.ssh_exception.NoValidConnectionsError
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+        except paramiko.ssh_exception.AuthenticationException:
             self.close()
+            Tools.debug("Username or Password is incorrect")
             if Tools.exc:
                 raise Exc.SSHError
         if self.shell:
             self.channel = self.ssh.invoke_shell()
             self.channel.send(self.shell_key)
 
-    def command(self, command: str, command_sleep: int = 2, recv_buffer: int = 99999999, tries: int = 3) -> Any:
+    def command(self, command: str, command_sleep: int = 2, recv_buffer: int = 99999999, tries: int = 3,
+                line: int = -1) -> Any:
         """
+
         :param command: the command
         :param command_sleep: the to execute the command
         :param recv_buffer: the recv command buffer
         :param tries: the number of times to try to send the command
+        :param line:
         :return: returns the output of the command - not working all the time
         """
         for i in range(tries):
@@ -420,19 +425,15 @@ class SSH:
                         return self.channel.recv(recv_buffer).decode("utf-8").split("\n")[1:-1]
                 else:
                     stdin, stdout, stderr = self.ssh.exec_command(command)
-                    return stdout.readlines()
-            except:
+                    return stdout.readlines(line)
+            except OSError:
                 Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
                 self.ssh_connect()
         else:
             Tools.debug("ssh_command failed")
 
     def close(self):
-        try:
-            self.ssh.close()
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
-            pass  # silenced
+        self.ssh.close()
 
 
 # data class for Telnet
@@ -454,6 +455,7 @@ class Telnet:
     ask_pass: bytes = b"Password:"
     cli_sign: bytes = b"#"
     pingf: bool = True
+    tn: Any = field(init=False, repr=False)
 
     def __post_init__(self):
         if Tools.ping(self.host) if self.pingf else True:
@@ -471,8 +473,8 @@ class Telnet:
             self.tn.read_until(self.ask_pass)
             self.tn.write(self.password.encode('ascii') + b"\n")
             self.tn.read_until(self.cli_sign, 60)
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+            self.command(" ")
+        except (TimeoutError, EOFError):
             self.close()
             if Tools.exc:
                 raise Exc.TelnetError
@@ -492,9 +494,10 @@ class Telnet:
             self.tn.write(command.encode('ascii') + b"\n")
             output = self.tn.read_until(b"#", 60)
             return output.decode('utf-8', 'replace').replace("�", "").split("\n")
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+        except EOFError:
             self.close()
+            if Tools.exc:
+                raise Exc.TelnetError
 
     def close(self):
         try:
