@@ -1,6 +1,7 @@
 from tca import *
 import pytest
 
+Tools.exc = True
 PING = "10.170.19.111"
 NO_PING = "172.16.255.254"
 

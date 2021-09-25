@@ -1,6 +1,7 @@
 from tca import *
 import pytest
 
+Tools.exc = True
 user, password = "smartmuel1", "IXSZW5caiAQrQQ"
 SSH_ENABLED = ["tty.sdf.org", user, password]
 NO_PING = ["172.16.255.254", user, password]
