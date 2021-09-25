@@ -1,6 +1,7 @@
 from tca import *
 import pytest
 
+Tools.exc = True
 user, password = "radware", "radware1"
 TEL_ENABLED = ["10.174.30.101", user, password]
 NO_PING = ["172.16.255.254", user, password]

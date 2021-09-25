@@ -261,8 +261,11 @@ class Chrome(object):
             import chromedriver_autoinstaller
             chromedriver_autoinstaller.install()
             self.driver = webdriver.Chrome(options=options)
-
-        self.url(url)
+        try:
+            self.url(url)
+        except WebDriverException:
+            Tools.debug("ERR_CONNECTION_TIMED_OUT")
+            self.close()
 
     def __call__(self):
         return self.driver
@@ -382,20 +385,22 @@ class SSH:
     pingf: bool = True
     channel: Any = field(init=False, repr=False)
     ssh: Any = field(init=False, repr=False)
+    exc: Any = field(init=False, repr=False)
 
     def __post_init__(self):
         if Tools.ping(self.host) if self.pingf else True:
             self.ssh_connect()
         else:
             Tools.debug("invalid host or no ping to host")
+        self.exc = (OSError,TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
+                paramiko.ssh_exception.SSHException)
 
     def ssh_connect(self):
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
-        except (TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
-                paramiko.ssh_exception.SSHException):
+        except self.exc:
             self.close()
             if Tools.exc:
                 raise Exc.SSHError
@@ -433,8 +438,7 @@ class SSH:
                 else:
                     stdin, stdout, stderr = self.ssh.exec_command(command)
                     return stdout.readlines(line)
-            except (OSError, paramiko.ssh_exception.SSHException, paramiko.ssh_exception.NoValidConnectionsError,
-                    AttributeError):
+            except self.exc:
                 self.ssh_connect()
         else:
             Tools.debug("ssh_command failed")
