@@ -32,7 +32,7 @@ class Tools(object):
     cwd = getcwd()
 
     # exception flag
-    exc = True
+    exc = False
 
     # context manager for changing directory
     class cd(object):
@@ -271,7 +271,13 @@ class Chrome(object):
         # if the url string don't have '://' in it the next line would add 'https://'
         # and if the url string is empty the default page is google.com
         url = f"{('://' not in url) * 'https://'}{url}{(not url) * 'www.google.com'}"
-        self.driver.get(url)
+
+        Tools.ping(url)
+        try:
+            self.driver.get(url)
+        except WebDriverException:
+            Tools.debug("ERR_CONNECTION_TIMED_OUT")
+            self.close()
         self.driver.fullscreen_window()
 
     def close(self):
@@ -388,7 +394,8 @@ class SSH:
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
-        except (TimeoutError, paramiko.ssh_exception.NoValidConnectionsError):
+        except (TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
+                paramiko.ssh_exception.SSHException):
             self.close()
             if Tools.exc:
                 raise Exc.SSHError
@@ -426,8 +433,8 @@ class SSH:
                 else:
                     stdin, stdout, stderr = self.ssh.exec_command(command)
                     return stdout.readlines(line)
-            except (OSError,paramiko.ssh_exception.SSHException,paramiko.ssh_exception.NoValidConnectionsError):
-                Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+            except (OSError, paramiko.ssh_exception.SSHException, paramiko.ssh_exception.NoValidConnectionsError,
+                    AttributeError):
                 self.ssh_connect()
         else:
             Tools.debug("ssh_command failed")
