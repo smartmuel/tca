@@ -1,18 +1,21 @@
 import logging
 import paramiko
 import requests
+import sys
+from io import StringIO
 from inspect import getframeinfo, stack
 from os import getcwd, chdir, popen
 from subprocess import check_call
-from sys import exc_info, executable
 from threading import Thread
 from time import sleep
-from typing import Any, Dict, List
+from typing import Any, Dict
 from socketserver import BaseRequestHandler
+from urllib3.exceptions import MaxRetryError
 
 from bps_restpy.bps_restpy_v1.bpsRest import BPS
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.common.exceptions import TimeoutException, WebDriverException, ElementNotInteractableException, \
+    InvalidElementStateException, NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -22,7 +25,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 try:
     from dataclasses import dataclass, field
 except ModuleNotFoundError:
-    check_call([executable, "-m", "pip", "install", "dataclasses"])
+    check_call([sys.executable, "-m", "pip", "install", "dataclasses"])
     from dataclasses import dataclass, field
 
 
@@ -48,6 +51,18 @@ class Tools(object):
 
         def __exit__(self, exc_type, value, traceback):
             chdir(Tools.cwd)
+
+    # context manager for turning prints into string
+    class to_string(object):
+        def __init__(self):
+            self.old_stdout = sys.stdout
+            sys.stdout = self.mystdout = StringIO()
+
+        def __enter__(self):
+            return self.mystdout
+
+        def __exit__(self, exc_type, value, traceback):
+            sys.stdout = self.old_stdout
 
     # the IP that can connect to the specified destination, 8.8.8.8 is the default
     @staticmethod
@@ -213,7 +228,7 @@ class CM(object):
 
     # context manager for Breaking Point
     class bp(object):
-        def __init__(self, test: str, ip: str, user: str, password: str, slot: int = 0, ports: List[int] = []):
+        def __init__(self, test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = ""):
             """
 
             :param test: Test name
@@ -261,11 +276,7 @@ class Chrome(object):
             import chromedriver_autoinstaller
             chromedriver_autoinstaller.install()
             self.driver = webdriver.Chrome(options=options)
-        try:
-            self.url(url)
-        except WebDriverException:
-            Tools.debug("ERR_CONNECTION_TIMED_OUT")
-            self.close()
+        self.url(url)
 
     def __call__(self):
         return self.driver
@@ -278,17 +289,17 @@ class Chrome(object):
         Tools.ping(url)
         try:
             self.driver.get(url)
+            self.driver.fullscreen_window()
         except WebDriverException:
             Tools.debug("ERR_CONNECTION_TIMED_OUT")
             self.close()
-        self.driver.fullscreen_window()
 
     def close(self):
         try:
             self.driver.close()
             self.driver.quit()
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+        except MaxRetryError:
+            pass
 
     def wait(self, elem: str, delay: int = 10, elem_type: str = By.XPATH) -> bool:
         """
@@ -324,8 +335,9 @@ class Chrome(object):
                 try:
                     self.driver.find_element_by_xpath(elem).click()
                     break
-                except:
-                    Tools.debug(f"Failed to Click_{str(i)}", elem, "Unexpected error:", exc_info()[0], exc_info()[1])
+                except (ElementNotInteractableException, InvalidElementStateException, StaleElementReferenceException,
+                    NoSuchElementException):
+                    pass
             else:
                 flag = False
         else:
@@ -354,8 +366,8 @@ class Chrome(object):
                     if enter:
                         my_elem.send_keys(Keys.ENTER)
                     break
-                except:
-                    Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+                except (ElementNotInteractableException, InvalidElementStateException, StaleElementReferenceException,
+                    NoSuchElementException):
                     flag = False
             else:
                 flag = False
@@ -385,22 +397,20 @@ class SSH:
     pingf: bool = True
     channel: Any = field(init=False, repr=False)
     ssh: Any = field(init=False, repr=False)
-    exc: Any = field(init=False, repr=False)
 
     def __post_init__(self):
         if Tools.ping(self.host) if self.pingf else True:
             self.ssh_connect()
         else:
             Tools.debug("invalid host or no ping to host")
-        self.exc = (OSError,TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
-                paramiko.ssh_exception.SSHException)
 
     def ssh_connect(self):
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
-        except self.exc:
+        except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
+                    paramiko.ssh_exception.SSHException):
             self.close()
             if Tools.exc:
                 raise Exc.SSHError
@@ -438,7 +448,8 @@ class SSH:
                 else:
                     stdin, stdout, stderr = self.ssh.exec_command(command)
                     return stdout.readlines(line)
-            except self.exc:
+            except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
+                    paramiko.ssh_exception.SSHException):
                 self.ssh_connect()
         else:
             Tools.debug("ssh_command failed")
@@ -511,11 +522,7 @@ class Telnet:
                 raise Exc.TelnetError
 
     def close(self):
-        try:
-            self.tn.close()
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
-            pass  # silenced
+        self.tn.close()
 
 
 # class for Syslog Server
@@ -526,41 +533,40 @@ class Syslog(object):
 
     class SyslogUDPHandler(BaseRequestHandler):
         def handle(self):
-            # socket = self.request[1]
-            self.data = str(bytes.decode(self.request[0].strip()))
-            # Tools.debug("%s : " % self.client_address[0], self.data)
-            logging.info(self.data)
+            logging.info(str(bytes.decode(self.request[0].strip())))
 
-    def __init__(self, name: str = "syslog", ip: str = Tools.get_ip_address()):
+    def __init__(self, name: str = "syslog.log", ip: str = Tools.get_ip_address(), port: int = 514):
         """
 
         :param name: Syslog log file name
         :param ip: The IP address to listen to, the default ip would be the ip that can connect to 8.8.8.8
+        :param port: The listening port
         """
-        self.name, self.ip = name, ip
+        from socketserver import UDPServer
+        self.name, self.ip, self.port = name, ip, port
+        self.server = UDPServer((self.ip, self.port), Syslog.SyslogUDPHandler)
         t1 = Thread(target=self.Server)
         t1.start()
 
     # Setting the Syslog server
     def Server(self):
-        from socketserver import UDPServer
         try:
             logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
                                 datefmt='%Y-%m-%d %H:%M:%S', filename=self.name,
                                 filemode='a')
-            self.server = UDPServer((self.ip, 514), Syslog.SyslogUDPHandler)
             self.server.serve_forever(poll_interval=0.5)
         except (IOError, SystemExit):
             raise
         except KeyboardInterrupt:
             Tools.debug("Crtl+C Pressed. Shutting down.")
 
-    # Closing the Server
+    # Closing the Server and clearing logging handler
     def close(self):
-        try:
-            self.server.shutdown()
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
+        # shutting down the server
+        self.server.shutdown()
+        # clearing logging handler
+        for handler in logging.root.handlers:
+            logging.root.removeHandler(handler)
 
 
 # class for Breaking Point
@@ -572,7 +578,7 @@ class BP(object):
     test_id = ""
 
     @staticmethod
-    def start(test: str, ip: str, user: str, password: str, slot: int = 0, ports: List[int] = []):
+    def start(test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = ""):
         """
 
         :param test: Test name
@@ -586,13 +592,18 @@ class BP(object):
         bps = BPS(ip, user, password)
         # login
         bps.login()
+
         if slot:
             bps.reservePorts(slot=slot,
-                             portList=ports,
+                             portList=ports.split(","),
                              group=1, force=True)
         # showing current port reservation state
-        bps.portsState()
-        BP.test_id = bps.runTest(modelname=test, group=1)
+        with Tools.to_string() as output:
+            bps.portsState()
+        if user in output.getvalue():
+            BP.test_id = bps.runTest(modelname=test, group=1)
+        else:
+            print("No Reserved Ports")
         bps.logout()
 
     @staticmethod
@@ -609,20 +620,21 @@ class BP(object):
         bps = BPS(ip, user, password)
         # login
         bps.login()
-        try:
+        with Tools.to_string() as output:
+            bps.runningTestInfo()
+        if output.getvalue():
+
             # stopping test
             bps.stopTest(testid=BP.test_id)
-            # logging out
+
+            # exporting csv report of the test
             if csv:
                 bps.exportTestReport(BP.test_id, "Test_Report.csv", "Test_Report")
-        except:
-            Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
-        finally:
-            try:
-                bps.logout()
-            except:
-                Tools.debug("Unexpected error:", exc_info()[0], exc_info()[1])
-                pass  # Silenced
+        else:
+            Tools.debug("No Running Tests")
+
+        # logging out
+        bps.logout()
 
 
 # class for Vision API
