@@ -428,7 +428,7 @@ class SSH:
                 self.channel.send(f'{command}\n'.encode('ascii'))
                 sleep(command_sleep)
                 if self.channel.recv_ready():
-                    return self.channel.recv(recv_buffer).decode("utf-8").split("\n")[1:-1]
+                    return self.channel.recv(recv_buffer).decode("utf-8", 'replace').replace("�", "").split("\n")[1:-1]
             except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
                     paramiko.ssh_exception.SSHException):
                 self.ssh_connect()
@@ -638,27 +638,31 @@ class API(object):
         self.cookie = response.cookies
         self.flag = False if "jsessionid" not in response.text else True
 
-    def get(self, url: str) -> Any:
+    def url(self, url: str) -> str:
         if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+            if "/mgmt" in url:
+                url = f"https://{self.vision}{url}"
+            else:
+                url = f"https://{self.vision}/mgmt/device/df{url}"
+        return url
+
+    def get(self, url: str) -> Any:
+        url = self.url(url)
         response = requests.get(url, verify=False, data=None, cookies=self.cookie)
         return response.json()
 
     def post(self, url: str, json: Dict[str, Any]) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.post(url, verify=False, data=None, json=json, cookies=self.cookie)
         return response.json()
 
     def put(self, url: str, json: Dict[str, Any]) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.put(url, verify=False, data=None, json=json, cookies=self.cookie)
         return response.json()
 
     def delete(self, url: str) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.delete(url, verify=False, data=None, cookies=self.cookie)
         return response.json()
 
