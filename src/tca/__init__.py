@@ -3,7 +3,6 @@ import paramiko
 import requests
 import sys
 from io import StringIO
-from inspect import getframeinfo, stack
 from os import getcwd, chdir, popen
 from subprocess import check_call
 from threading import Thread
@@ -92,7 +91,7 @@ class Tools(object):
 
         except AssertionError:
             timeout, tries = 1, 2
-            Tools.debug(
+            print(
                 "timeout and tries should be more or equal to 1, revert to defaults timeout, tries = 1, 2")
 
         command = f'ping -n 1 -w {timeout * 1000} {host}' if system().lower() == 'windows' else \
@@ -105,12 +104,6 @@ class Tools(object):
         if Tools.exc and (not flag):
             raise Exc.NoPingError
         return flag
-
-    # printing line and a message
-    @staticmethod
-    def debug(*args):
-        caller = getframeinfo(stack()[-1][0])
-        print(f"{caller.lineno} - {args}")
 
 
 # exceptions
@@ -145,7 +138,7 @@ class CM(object):
 
     # SSH Context Manager
     class ssh(object):
-        def __init__(self, host: str, user: str, password: str, shell: bool = False, shell_key: bytes = b"dfcshell\n",
+        def __init__(self, host: str, user: str, password: str,
                      port: int = 22, pingf: bool = True):
             """
 
@@ -154,12 +147,10 @@ class CM(object):
             :param password: password for the ssh
             :param pingf: flag to ping
             """
-            self.host, self.user, self.password = host, user, password
-            self.shell, self.shell_key, self.port, self.pingf = shell, shell_key, port, pingf
+            self.host, self.user, self.password, self.port, self.pingf = host, user, password, port, pingf
 
         def __enter__(self):
-            self.ssh = SSH(host=self.host, user=self.user, password=self.password, shell=self.shell,
-                           shell_key=self.shell_key, port=self.port,
+            self.ssh = SSH(host=self.host, user=self.user, password=self.password, port=self.port,
                            pingf=self.pingf)
             return self.ssh
 
@@ -169,8 +160,8 @@ class CM(object):
 
     # Telnet Context Manager
     class telnet(object):
-        def __init__(self, host: str, user: str, password: str, ask_user: bytes = b"User:",
-                     ask_pass: bytes = b"Password:", cli_sign: bytes = b"#", pingf: bool = True):
+        def __init__(self, host: str, user: str, password: str, ask_user: str = "User:",
+                     ask_pass: str = "Password:", cli_sign: str = "#", pingf: bool = True):
             """
 
             :param host: host to telnet
@@ -291,7 +282,7 @@ class Chrome(object):
             self.driver.get(url)
             self.driver.fullscreen_window()
         except WebDriverException:
-            Tools.debug("ERR_CONNECTION_TIMED_OUT")
+            print("ERR_CONNECTION_TIMED_OUT")
             self.close()
 
     def close(self):
@@ -315,7 +306,7 @@ class Chrome(object):
         try:
             WebDriverWait(self.driver, delay).until(expected_conditions.presence_of_element_located((elem_type, elem)))
         except TimeoutException:
-            Tools.debug("Wait False", elem)
+            print("Wait False", elem)
             flag = False
         return flag
 
@@ -336,7 +327,7 @@ class Chrome(object):
                     self.driver.find_element_by_xpath(elem).click()
                     break
                 except (ElementNotInteractableException, InvalidElementStateException, StaleElementReferenceException,
-                    NoSuchElementException):
+                        NoSuchElementException):
                     pass
             else:
                 flag = False
@@ -367,7 +358,7 @@ class Chrome(object):
                         my_elem.send_keys(Keys.ENTER)
                     break
                 except (ElementNotInteractableException, InvalidElementStateException, StaleElementReferenceException,
-                    NoSuchElementException):
+                        NoSuchElementException):
                     flag = False
             else:
                 flag = False
@@ -391,8 +382,6 @@ class SSH:
     host: str
     user: str
     password: str
-    shell: bool = False
-    shell_key: bytes = b"dfcshell\n"
     port: int = 22
     pingf: bool = True
     channel: Any = field(init=False, repr=False)
@@ -402,7 +391,7 @@ class SSH:
         if Tools.ping(self.host) if self.pingf else True:
             self.ssh_connect()
         else:
-            Tools.debug("invalid host or no ping to host")
+            print("invalid host or no ping to host")
 
     def ssh_connect(self):
         self.ssh = paramiko.SSHClient()
@@ -410,49 +399,41 @@ class SSH:
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
         except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
-                    paramiko.ssh_exception.SSHException):
+                paramiko.ssh_exception.SSHException):
             self.close()
             if Tools.exc:
                 raise Exc.SSHError
         except paramiko.ssh_exception.AuthenticationException:
             self.close()
-            Tools.debug("Username or Password is incorrect")
+            print("Username or Password is incorrect")
             if Tools.exc:
                 raise Exc.SSHError
-        if self.shell:
-            self.channel = self.ssh.invoke_shell()
-            self.channel.send(self.shell_key)
+        self.channel = self.ssh.invoke_shell()
 
-    def command(self, command: str, command_sleep: int = 2, recv_buffer: int = 99999999, tries: int = 3,
-                line: int = -1) -> Any:
+    def command(self, command: str, command_sleep: int = 2, recv_buffer: int = 99999999, tries: int = 3) -> Any:
         """
 
         :param command: the command
         :param command_sleep: the to execute the command
         :param recv_buffer: the recv command buffer
         :param tries: the number of times to try to send the command
-        :param line:
         :return: returns the output of the command - not working all the time
         """
         for i in range(tries):
             try:
-                if self.shell:
-                    # Clearing output.
-                    sleep(command_sleep / 6)
-                    if self.channel.recv_ready():
-                        self.channel.recv(recv_buffer)
-                    self.channel.send(f'{command}\n'.encode('ascii'))
-                    sleep(command_sleep)
-                    if self.channel.recv_ready():
-                        return self.channel.recv(recv_buffer).decode("utf-8").split("\n")[1:-1]
-                else:
-                    stdin, stdout, stderr = self.ssh.exec_command(command)
-                    return stdout.readlines(line)
+                # Clearing output.
+                sleep(command_sleep / 6)
+                if self.channel.recv_ready():
+                    self.channel.recv(recv_buffer)
+                self.channel.send(f'{command}\n'.encode('ascii'))
+                sleep(command_sleep)
+                if self.channel.recv_ready():
+                    return self.channel.recv(recv_buffer).decode("utf-8", 'replace').replace("�", "").split("\n")[1:-1]
             except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
                     paramiko.ssh_exception.SSHException):
                 self.ssh_connect()
         else:
-            Tools.debug("ssh_command failed")
+            print("ssh_command failed")
 
     def close(self):
         self.ssh.close()
@@ -473,9 +454,9 @@ class Telnet:
     host: str
     user: str
     password: str
-    ask_user: bytes = b"User:"
-    ask_pass: bytes = b"Password:"
-    cli_sign: bytes = b"#"
+    ask_user: str = "User:"
+    ask_pass: str = "Password:"
+    cli_sign: str = "#"
     pingf: bool = True
     tn: Any = field(init=False, repr=False)
 
@@ -483,18 +464,18 @@ class Telnet:
         if Tools.ping(self.host) if self.pingf else True:
             self.tel_connect()
         else:
-            Tools.debug("invalid host or no ping to host")
+            print("invalid host or no ping to host")
 
     def tel_connect(self):
         try:
             import telnetlib
             self.tn = telnetlib.Telnet()
             self.tn.open(self.host)
-            self.tn.read_until(self.ask_user)
-            self.tn.write(self.user.encode('ascii') + b"\n")
-            self.tn.read_until(self.ask_pass)
-            self.tn.write(self.password.encode('ascii') + b"\n")
-            self.tn.read_until(self.cli_sign, 60)
+            self.tn.read_until(self.ask_user.encode('ascii'))
+            self.tn.write(f"{self.user}\n".encode('ascii'))
+            self.tn.read_until(self.ask_pass.encode('ascii'))
+            self.tn.write(f"{self.password}\n".encode('ascii'))
+            self.tn.read_until(self.cli_sign.encode('ascii'), 60)
             self.command(" ")
         except (TimeoutError, EOFError):
             self.close()
@@ -558,7 +539,7 @@ class Syslog(object):
         except (IOError, SystemExit):
             raise
         except KeyboardInterrupt:
-            Tools.debug("Crtl+C Pressed. Shutting down.")
+            print("Crtl+C Pressed. Shutting down.")
 
     # Closing the Server and clearing logging handler
     def close(self):
@@ -631,7 +612,7 @@ class BP(object):
             if csv:
                 bps.exportTestReport(BP.test_id, "Test_Report.csv", "Test_Report")
         else:
-            Tools.debug("No Running Tests")
+            print("No Running Tests")
 
         # logging out
         bps.logout()
@@ -657,36 +638,34 @@ class API(object):
         self.cookie = response.cookies
         self.flag = False if "jsessionid" not in response.text else True
 
-    def get(self, url: str) -> Any:
+    def url(self, url: str) -> str:
         if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+            if "/mgmt" in url:
+                url = f"https://{self.vision}{url}"
+            else:
+                url = f"https://{self.vision}/mgmt/device/df{url}"
+        return url
+
+    def get(self, url: str) -> Any:
+        url = self.url(url)
         response = requests.get(url, verify=False, data=None, cookies=self.cookie)
         return response.json()
 
     def post(self, url: str, json: Dict[str, Any]) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.post(url, verify=False, data=None, json=json, cookies=self.cookie)
         return response.json()
 
     def put(self, url: str, json: Dict[str, Any]) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.put(url, verify=False, data=None, json=json, cookies=self.cookie)
         return response.json()
 
     def delete(self, url: str) -> Any:
-        if "://" not in url:
-            url = f"https://{self.vision}/mgmt/device/df{url}"
+        url = self.url(url)
         response = requests.delete(url, verify=False, data=None, cookies=self.cookie)
         return response.json()
 
     def close(self):
         url = f"https://{self.vision}/mgmt/system/user/logout"
         requests.post(url, verify=False, cookies=self.cookie)
-
-
-"""class Script(object):
-
-    @staticmethod
-    def DP_upgrade():"""
