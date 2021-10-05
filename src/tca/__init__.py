@@ -398,6 +398,7 @@ class SSH:
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             self.ssh.connect(hostname=self.host, port=self.port, username=self.user, password=self.password)
+            self.channel = self.ssh.invoke_shell()
         except (OSError, TimeoutError, AttributeError, paramiko.ssh_exception.NoValidConnectionsError,
                 paramiko.ssh_exception.SSHException):
             self.close()
@@ -408,7 +409,6 @@ class SSH:
             print("Username or Password is incorrect")
             if Tools.exc:
                 raise Exc.SSHError
-        self.channel = self.ssh.invoke_shell()
 
     def command(self, command: str, command_sleep: int = 2, recv_buffer: int = 99999999, tries: int = 3) -> Any:
         """
