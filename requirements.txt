@@ -1,5 +1,4 @@
 Selenium
-requests
 paramiko
 chromedriver_autoinstaller
 bps_restpy
@@ -33,3 +32,5 @@ virtualenv
 distlib
 platformdirs
 tca
+aiohttp
+requests

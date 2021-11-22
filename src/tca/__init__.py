@@ -1,6 +1,8 @@
 import logging
 import paramiko
 import requests
+import asyncio
+import aiohttp
 import sys
 from io import StringIO
 from os import getcwd, chdir, popen
@@ -269,8 +271,11 @@ class Chrome(object):
             self.driver = webdriver.Chrome(options=options)
         self.url(url)
 
-    def __call__(self):
-        return self.driver
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def url(self, url: str):
         # if the url string don't have '://' in it the next line would add 'https://'
@@ -529,6 +534,12 @@ class Syslog(object):
         t1 = Thread(target=self.Server)
         t1.start()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     # Setting the Syslog server
     def Server(self):
         try:
@@ -558,8 +569,22 @@ class BP(object):
 
     test_id = ""
 
-    @staticmethod
-    def start(test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = ""):
+    def __init__(self,test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = "", start: bool = True):
+        self.ip, self.user, self.password = ip, user, password
+        self.bps = BPS(self.ip, self.user, self.password)
+        # login
+        self.bps.login()
+        if slot:
+            self.reserve(slot, ports)
+        if start:
+            self.start(test)
+
+    def reserve(self, slot: int, ports: str):
+        self.bps.reservePorts(slot=slot,
+                              portList=ports.split(","),
+                              group=1, force=True)
+
+    def start(self, test: str):
         """
 
         :param test: Test name
@@ -570,25 +595,16 @@ class BP(object):
         :param ports: Ports to reserve as list, example: [1,2]
         :return: None
         """
-        bps = BPS(ip, user, password)
-        # login
-        bps.login()
 
-        if slot:
-            bps.reservePorts(slot=slot,
-                             portList=ports.split(","),
-                             group=1, force=True)
         # showing current port reservation state
         with Tools.to_string() as output:
-            bps.portsState()
-        if user in output.getvalue():
-            BP.test_id = bps.runTest(modelname=test, group=1)
+            self.bps.portsState()
+        if self.user in output.getvalue():
+            self.test_id = self.bps.runTest(modelname=test, group=1)
         else:
             print("No Reserved Ports")
-        bps.logout()
 
-    @staticmethod
-    def stop(ip: str, user: str, password: str, csv: bool = False):
+    def stop(self, csv: bool = False):
         """
 
         :param ip: BP IP
@@ -598,45 +614,65 @@ class BP(object):
         :return: None
         """
 
-        bps = BPS(ip, user, password)
-        # login
-        bps.login()
         with Tools.to_string() as output:
-            bps.runningTestInfo()
+            self.bps.runningTestInfo()
         if output.getvalue():
 
             # stopping test
-            bps.stopTest(testid=BP.test_id)
+            self.bps.stopTest(testid=self.test_id)
 
             # exporting csv report of the test
             if csv:
-                bps.exportTestReport(BP.test_id, "Test_Report.csv", "Test_Report")
+                self.csv(self.test_id)
         else:
             print("No Running Tests")
 
-        # logging out
-        bps.logout()
+    def csv(self, test_id: Any):
+        self.bps.exportTestReport(test_id, "Test_Report.csv", "Test_Report")
+
+    def logout(self):
+        self.bps.logout()
 
 
 # class for Vision API
 class API(object):
     """
-    Login/Logout/Get from Vision with REST API
+    Login/Logout/Get/Post/Put/Delete from Vision with REST API
     """
 
-    def __init__(self, vision: str, user: str, password: str):
+    def __init__(self, vision: str, user: str, password: str, ping_timeout: int = 1):
         """
 
         :param vision: Vision IP
         :param user: Username
         :param password: Password
+        :param ping_timeout: ping timeout in seconds
         """
-        self.vision = vision
-        url = f"https://{self.vision}/mgmt/system/user/login"
-        fill_json = {"username": user, "password": password}
-        response = requests.post(url, verify=False, data=None, json=fill_json)
-        self.cookie = response.cookies
-        self.flag = False if "jsessionid" not in response.text else True
+        self.vision, self.user, self.password = vision, user, password
+        self.ping_timeout, self.flag = ping_timeout, False
+        if Tools.ping(vision, ping_timeout) if ping_timeout else True:
+            self.login()
+        else:
+            print("invalid host or no ping to host")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def login(self):
+        # if self.cookie:
+        #     url = f"https://{self.vision}/mgmt/system/user/logout"
+        #     self.response = requests.post(url, verify=False, cookies=self.cookie)
+        #     if self.response.status_code != 200:
+        #         self.flag = False
+        if not self.flag:
+            url = f"https://{self.vision}/mgmt/system/user/login"
+            fill_json = {"username": self.user, "password": self.password}
+            self.response = requests.post(url, verify=False, data=None, json=fill_json)
+            self.cookie = self.response.cookies
+            self.flag = False if "jsessionid" not in self.response.text else True
 
     def url(self, url: str) -> str:
         if "://" not in url:
@@ -648,24 +684,43 @@ class API(object):
 
     def get(self, url: str) -> Any:
         url = self.url(url)
-        response = requests.get(url, verify=False, data=None, cookies=self.cookie)
-        return response.json()
+        self.response = requests.get(url, verify=False, data=None, cookies=self.cookie)
+        return self.response.json()
 
     def post(self, url: str, json: Dict[str, Any]) -> Any:
         url = self.url(url)
-        response = requests.post(url, verify=False, data=None, json=json, cookies=self.cookie)
-        return response.json()
+        self.response = requests.post(url, verify=False, data=None, json=json, cookies=self.cookie)
+        return self.response.json()
 
     def put(self, url: str, json: Dict[str, Any]) -> Any:
         url = self.url(url)
-        response = requests.put(url, verify=False, data=None, json=json, cookies=self.cookie)
-        return response.json()
+        self.response = requests.put(url, verify=False, data=None, json=json, cookies=self.cookie)
+        return self.response.json()
 
     def delete(self, url: str) -> Any:
         url = self.url(url)
-        response = requests.delete(url, verify=False, data=None, cookies=self.cookie)
-        return response.json()
+        self.response = requests.delete(url, verify=False, data=None, cookies=self.cookie)
+        return self.response.json()
+
+    def a_get(self, urls):
+        results = []
+        headers = {'Cookie': "; ".join([str(x)+"="+str(y) for x,y in self.cookie.items()])}
+        def get_responses(session):
+            tasks = []
+            for url in urls:
+                tasks.append(asyncio.create_task(session.get(url, headers=headers, ssl=False)))
+            return tasks
+
+        async def get_apis():
+            async with aiohttp.ClientSession() as session:
+                tasks = get_responses(session)
+                responses = await asyncio.gather(*tasks)
+                for response in responses:
+                    results.append(await response.json())
+
+        asyncio.run(get_apis())
+        return results
 
     def close(self):
         url = f"https://{self.vision}/mgmt/system/user/logout"
-        requests.post(url, verify=False, cookies=self.cookie)
+        self.response = requests.post(url, verify=False, cookies=self.cookie)
