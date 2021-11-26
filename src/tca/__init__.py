@@ -4,12 +4,12 @@ import requests
 import asyncio
 import aiohttp
 import sys
+import telnetlib
 from io import StringIO
 from os import getcwd, chdir, popen
-from subprocess import check_call
 from threading import Thread
 from time import sleep
-from typing import Any, Dict
+from typing import Any, Dict, List
 from socketserver import BaseRequestHandler
 from urllib3.exceptions import MaxRetryError
 
@@ -23,15 +23,9 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.ui import WebDriverWait
 
-try:
-    from dataclasses import dataclass, field
-except ModuleNotFoundError:
-    check_call([sys.executable, "-m", "pip", "install", "dataclasses"])
-    from dataclasses import dataclass, field
-
 
 # class for context manager tools like: cd( change directory ), ping, etc..
-class Tools(object):
+class Tools:
     # current working directory
     cwd = getcwd()
 
@@ -39,7 +33,7 @@ class Tools(object):
     exc = False
 
     # context manager for changing directory
-    class cd(object):
+    class cd:
         def __init__(self, path: str):
             """
 
@@ -54,7 +48,7 @@ class Tools(object):
             chdir(Tools.cwd)
 
     # context manager for turning prints into string
-    class to_string(object):
+    class to_string:
         def __init__(self):
             self.old_stdout = sys.stdout
             sys.stdout = self.mystdout = StringIO()
@@ -120,130 +114,8 @@ class Exc:
         pass
 
 
-# Context Managers Class For All The Functions That Need To Be Closed.
-class CM(object):
-    # Chrome Context Manager
-    class chrome(object):
-        def __init__(self, url: str = ""):
-            """
-
-            :param url: The URL
-            """
-            self.driver = Chrome(url=url)
-
-        def __enter__(self):
-            return self.driver
-
-        def __exit__(self, exc_type, value, traceback):
-            self.driver.close()
-            del self.driver
-
-    # SSH Context Manager
-    class ssh(object):
-        def __init__(self, host: str, user: str, password: str,
-                     port: int = 22, pingf: bool = True):
-            """
-
-            :param host: host to ssh
-            :param user: username for the ssh
-            :param password: password for the ssh
-            :param pingf: flag to ping
-            """
-            self.host, self.user, self.password, self.port, self.pingf = host, user, password, port, pingf
-
-        def __enter__(self):
-            self.ssh = SSH(host=self.host, user=self.user, password=self.password, port=self.port,
-                           pingf=self.pingf)
-            return self.ssh
-
-        def __exit__(self, exc_type, value, traceback):
-            self.ssh.close()
-            del self.ssh
-
-    # Telnet Context Manager
-    class telnet(object):
-        def __init__(self, host: str, user: str, password: str, ask_user: str = "User:",
-                     ask_pass: str = "Password:", cli_sign: str = "#", pingf: bool = True):
-            """
-
-            :param host: host to telnet
-            :param user: username for the telnet
-            :param password: password for the telnet
-            :param pingf: flag to ping
-            :param ask_user: Read until a given byte string of the username statement
-            :param ask_pass: Read until a given byte string of the password statement
-            :param cli_sign: Read until a given byte string of the cli sign
-            """
-            self.telnet = Telnet(host=host, user=user, password=password, ask_user=ask_user,
-                                 ask_pass=ask_pass, cli_sign=cli_sign, pingf=pingf)
-
-        def __enter__(self):
-            return self.telnet
-
-        def __exit__(self, exc_type, value, traceback):
-            self.telnet.close()
-            del self.telnet
-
-    # Syslog server Context Manager
-    class syslog(object):
-        def __init__(self, name: str = "syslog", ip: str = Tools.get_ip_address()):
-            """
-
-            :param name: Syslog log file name
-            :param ip: The IP address to listen to, the default ip would be the ip that can connect to 8.8.8.8
-            """
-            self.syslog = Syslog(name=name, ip=ip)
-
-        def __enter__(self):
-            return self.syslog
-
-        def __exit__(self, exc_type, value, traceback):
-            self.syslog.close()
-            del self.syslog
-
-    # context manager for Vision API
-    class api(object):
-        def __init__(self, vision: str, user: str, password: str):
-            """
-
-            :param vision: Vision IP
-            :param user: Username
-            :param password: Password
-            """
-            self.api = API(vision=vision, user=user, password=password)
-
-        def __enter__(self):
-            return self.api
-
-        def __exit__(self, exc_type, value, traceback):
-            self.api.close()
-            del self.api
-
-    # context manager for Breaking Point
-    class bp(object):
-        def __init__(self, test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = ""):
-            """
-
-            :param test: Test name
-            :param ip: BP IP
-            :param user: BP username
-            :param password: BP password
-            :param slot: Slot number of the ports to reserve
-            :param ports: Ports to reserve as list, example: [1,2]
-            :return: None
-            """
-            BP.start(test=test, ip=ip, user=user, password=password, slot=slot, ports=ports)
-            self.ip, self.user, self.password = ip, user, password
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, value, traceback):
-            BP.stop(ip=self.ip, user=self.user, password=self.password)
-
-
 # class that contain all the automation functions with Chrome.
-class Chrome(object):
+class Chrome:
     """
     Chrome Automation.
     """
@@ -315,10 +187,11 @@ class Chrome(object):
             flag = False
         return flag
 
-    def click(self, elem: str, tries: int = 3, delay: int = 3) -> bool:
+    def click(self, elem: str, elem_type: str = By.XPATH, tries: int = 3, delay: int = 3) -> bool:
         """
 
         :param elem: The copied Xpath element
+        :param elem_type: The default type is Xpath
         :param tries: tries to click
         :param delay: The delay for the wait function
         :return: True if click succeeded
@@ -329,7 +202,7 @@ class Chrome(object):
             elem = elem.strip()
             for i in range(tries):
                 try:
-                    self.driver.find_element_by_xpath(elem).click()
+                    self.driver.find_element(elem_type, elem).click()
                     break
                 except (ElementNotInteractableException, InvalidElementStateException, StaleElementReferenceException,
                         NoSuchElementException):
@@ -340,11 +213,13 @@ class Chrome(object):
             flag = False
         return flag
 
-    def fill(self, elem: str, text: str, enter: bool = False, tries: int = 3, delay: int = 5) -> bool:
+    def fill(self, elem: str, text: str, elem_type: str = By.XPATH, enter: bool = False,
+             tries: int = 3, delay: int = 5) -> bool:
         """
 
         :param elem: The copied Xpath element
         :param text:
+        :param elem_type: The default type is Xpath
         :param enter:
         :param tries:
         :param delay:
@@ -355,7 +230,7 @@ class Chrome(object):
         if self.wait(elem=elem, delay=delay):
             for i in range(tries):
                 try:
-                    my_elem = self.driver.find_element_by_xpath(elem)
+                    my_elem = self.driver.find_element(elem_type, elem)
                     my_elem.click()
                     my_elem.clear()
                     my_elem.send_keys(text)
@@ -372,31 +247,28 @@ class Chrome(object):
         return flag
 
 
-# data class for SSH
-@dataclass
+# class for ssh
 class SSH:
-    """
-    host: host to ssh
-    user: username for the ssh
-    password: password for the ssh
-    shell: flag for using invoke shell
-    shell_key: the command to invoke a shell script
-    port: ssh port
-    pingf: flag to ping
-    """
-    host: str
-    user: str
-    password: str
-    port: int = 22
-    pingf: bool = True
-    channel: Any = field(init=False, repr=False)
-    ssh: Any = field(init=False, repr=False)
+    def __init__(self, host: str, user: str, password: str, port: int = 22, pingf: bool = True):
+        """
 
-    def __post_init__(self):
-        if Tools.ping(self.host) if self.pingf else True:
+        :param host: host to ssh
+        :param user: username for the ssh
+        :param password: password for the ssh
+        :param port: ssh port
+        :param pingf: flag to ping
+        """
+        self.host, self.user, self.password, self.port = host, user, password, port
+        if Tools.ping(self.host) if pingf else True:
             self.ssh_connect()
         else:
             print("invalid host or no ping to host")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def ssh_connect(self):
         self.ssh = paramiko.SSHClient()
@@ -444,36 +316,36 @@ class SSH:
         self.ssh.close()
 
 
-# data class for Telnet
-@dataclass
+# class for telnet
 class Telnet:
-    """
-    host: host to telnet
-    user: username for the telnet
-    password: password for the telnet
-    ask_user: Read until a given byte string of the username statement
-    ask_pass: Read until a given byte string of the password statement
-    cli_sign: Read until a given byte string of the cli sign
-    pingf: flag to ping
-    """
-    host: str
-    user: str
-    password: str
-    ask_user: str = "User:"
-    ask_pass: str = "Password:"
-    cli_sign: str = "#"
-    pingf: bool = True
-    tn: Any = field(init=False, repr=False)
+    def __init__(self, host: str, user: str, password: str, ask_user: str = "User:", ask_pass: str = "Password:",
+                 cli_sign: str = "#", pingf: bool = True):
+        """
 
-    def __post_init__(self):
-        if Tools.ping(self.host) if self.pingf else True:
+        :param host: host to telnet
+        :param user: username for the telnet
+        :param password: password for the telnet
+        :param ask_user: Read until a given byte string of the username statement
+        :param ask_pass: Read until a given byte string of the password statement
+        :param cli_sign: Read until a given byte string of the cli sign
+        :param pingf: flag to ping
+        """
+        self.host, self.user, self.password = host, user, password
+        self.ask_user, self.ask_pass, self.cli_sign = ask_user, ask_pass, cli_sign
+        self.tn: telnetlib.Telnet
+        if Tools.ping(self.host) if pingf else True:
             self.tel_connect()
         else:
             print("invalid host or no ping to host")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def tel_connect(self):
         try:
-            import telnetlib
             self.tn = telnetlib.Telnet()
             self.tn.open(self.host)
             self.tn.read_until(self.ask_user.encode('ascii'))
@@ -509,10 +381,11 @@ class Telnet:
 
     def close(self):
         self.tn.close()
+    # data class for Telnet
 
 
 # class for Syslog Server
-class Syslog(object):
+class Syslog:
     """
     Class for Syslog Server
     """
@@ -562,29 +435,14 @@ class Syslog(object):
 
 
 # class for Breaking Point
-class BP(object):
+class BP:
     """
     Class for Breaking Point
     """
 
     test_id = ""
 
-    def __init__(self,test: str, ip: str, user: str, password: str, slot: int = 0, ports: str = "", start: bool = True):
-        self.ip, self.user, self.password = ip, user, password
-        self.bps = BPS(self.ip, self.user, self.password)
-        # login
-        self.bps.login()
-        if slot:
-            self.reserve(slot, ports)
-        if start:
-            self.start(test)
-
-    def reserve(self, slot: int, ports: str):
-        self.bps.reservePorts(slot=slot,
-                              portList=ports.split(","),
-                              group=1, force=True)
-
-    def start(self, test: str):
+    def __init__(self, test: str, ip: str, user: str, password: str, slot: int = 0, ports: Any = None):
         """
 
         :param test: Test name
@@ -593,6 +451,39 @@ class BP(object):
         :param password: BP password
         :param slot: Slot number of the ports to reserve
         :param ports: Ports to reserve as list, example: [1,2]
+        """
+        self.ip, self.user, self.password = ip, user, password
+        self.bps = BPS(self.ip, self.user, self.password)
+        if slot:
+            self.reserve(slot, ports)
+        if test:
+            self.start(test)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+    @staticmethod
+    def LoginDecorator(func):
+        def inner(self):
+            self.bps.login()
+            func(self)
+            self.bps.logout()
+
+        return inner
+
+    def reserve(self, slot: int, ports: List[int]):
+        self.bps.reservePorts(slot=slot,
+                              portList=ports,
+                              group=1, force=True)
+
+    @LoginDecorator
+    def start(self, test: str):
+        """
+
+        :param test: Test name
         :return: None
         """
 
@@ -604,12 +495,10 @@ class BP(object):
         else:
             print("No Reserved Ports")
 
+    @LoginDecorator
     def stop(self, csv: bool = False):
         """
 
-        :param ip: BP IP
-        :param user: BP username
-        :param password: BP password
         :param csv: Export csv report
         :return: None
         """
@@ -630,12 +519,15 @@ class BP(object):
     def csv(self, test_id: Any):
         self.bps.exportTestReport(test_id, "Test_Report.csv", "Test_Report")
 
+    def login(self):
+        self.bps.login()
+
     def logout(self):
         self.bps.logout()
 
 
 # class for Vision API
-class API(object):
+class API:
     """
     Login/Logout/Get/Post/Put/Delete from Vision with REST API
     """
@@ -704,21 +596,23 @@ class API(object):
 
     def a_get(self, urls):
         results = []
-        headers = {'Cookie': "; ".join([str(x)+"="+str(y) for x,y in self.cookie.items()])}
-        def get_responses(session):
+        headers = {'Cookie': "; ".join([f"{x}={y}" for x, y in self.cookie.items()])}
+
+        def get_tasks(session):
             tasks = []
             for url in urls:
+                url = self.url(url)
                 tasks.append(asyncio.create_task(session.get(url, headers=headers, ssl=False)))
             return tasks
 
-        async def get_apis():
+        async def get_responses():
             async with aiohttp.ClientSession() as session:
-                tasks = get_responses(session)
+                tasks = get_tasks(session)
                 responses = await asyncio.gather(*tasks)
                 for response in responses:
                     results.append(await response.json())
 
-        asyncio.run(get_apis())
+        asyncio.run(get_responses())
         return results
 
     def close(self):
